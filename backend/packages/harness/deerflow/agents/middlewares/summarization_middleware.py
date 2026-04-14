@@ -8,7 +8,7 @@ from typing import Protocol, runtime_checkable
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import SummarizationMiddleware
-from langchain_core.messages import AnyMessage, RemoveMessage
+from langchain_core.messages import AnyMessage, HumanMessage, RemoveMessage, SystemMessage
 from langgraph.config import get_config
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.runtime import Runtime
@@ -70,6 +70,25 @@ class DeerFlowSummarizationMiddleware(SummarizationMiddleware):
         super().__init__(*args, **kwargs)
         self._before_summarization_hooks = before_summarization or []
 
+    def _build_new_messages(self, summary: str) -> list[AnyMessage]:
+        """Override base behaviour to strictly cast the summary as a SystemMessage."""
+        return [SystemMessage(content=f"Here is a summary of the conversation to date:\n{summary}")]
+
+    def _rebuild_messages_with_anchor(self, original_messages: list[AnyMessage], new_messages: list[AnyMessage], preserved_messages: list[AnyMessage]) -> dict:
+        current_msg = next((msg for msg in reversed(original_messages) if isinstance(msg, HumanMessage) or getattr(msg, "type", "") == "human"), None)
+
+        if current_msg:
+            preserved_messages = [msg for msg in preserved_messages if getattr(msg, "id", None) != getattr(current_msg, "id", None)]
+
+        final_messages = [RemoveMessage(id=REMOVE_ALL_MESSAGES)]
+        final_messages.extend(new_messages)
+
+        if current_msg:
+            final_messages.append(current_msg)
+
+        final_messages.extend(preserved_messages)
+        return {"messages": final_messages}
+
     def before_model(self, state: AgentState, runtime: Runtime) -> dict | None:
         return self._maybe_summarize(state, runtime)
 
@@ -90,16 +109,11 @@ class DeerFlowSummarizationMiddleware(SummarizationMiddleware):
 
         messages_to_summarize, preserved_messages = self._partition_messages(messages, cutoff_index)
         self._fire_hooks(messages_to_summarize, preserved_messages, runtime)
-        summary = self._create_summary(messages_to_summarize)
-        new_messages = self._build_new_messages(summary)
 
-        return {
-            "messages": [
-                RemoveMessage(id=REMOVE_ALL_MESSAGES),
-                *new_messages,
-                *preserved_messages,
-            ]
-        }
+        summary_text = self._create_summary(messages_to_summarize)
+        new_messages = self._build_new_messages(summary_text)
+
+        return self._rebuild_messages_with_anchor(messages, new_messages, preserved_messages)
 
     async def _amaybe_summarize(self, state: AgentState, runtime: Runtime) -> dict | None:
         messages = state["messages"]
@@ -115,16 +129,11 @@ class DeerFlowSummarizationMiddleware(SummarizationMiddleware):
 
         messages_to_summarize, preserved_messages = self._partition_messages(messages, cutoff_index)
         self._fire_hooks(messages_to_summarize, preserved_messages, runtime)
-        summary = await self._acreate_summary(messages_to_summarize)
-        new_messages = self._build_new_messages(summary)
 
-        return {
-            "messages": [
-                RemoveMessage(id=REMOVE_ALL_MESSAGES),
-                *new_messages,
-                *preserved_messages,
-            ]
-        }
+        summary_text = await self._acreate_summary(messages_to_summarize)
+        new_messages = self._build_new_messages(summary_text)
+
+        return self._rebuild_messages_with_anchor(messages, new_messages, preserved_messages)
 
     def _fire_hooks(
         self,
