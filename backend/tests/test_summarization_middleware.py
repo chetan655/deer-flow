@@ -185,6 +185,7 @@ def test_memory_flush_hook_preserves_agent_scoped_memory(monkeypatch: pytest.Mon
     queue.add_nowait.assert_called_once()
     assert queue.add_nowait.call_args.kwargs["agent_name"] == "research-agent"
 
+
 def test_build_new_messages_casts_to_system_message() -> None:
     middleware = _middleware()
     new_messages = middleware._build_new_messages("This is a test summary.")
@@ -193,14 +194,11 @@ def test_build_new_messages_casts_to_system_message() -> None:
     assert isinstance(new_messages[0], SystemMessage)
     assert "This is a test summary" in new_messages[0].content
 
+
 def test_rebuild_messages_rescues_swallowed_human_message() -> None:
     middleware = _middleware()
     human_msg = HumanMessage(content="active-task", id="h-1")
-    original_messages = [
-        SystemMessage(content="sys"),
-        human_msg, 
-        AIMessage(content="tool-call", id="ai-1")
-    ]
+    original_messages = [SystemMessage(content="sys"), human_msg, AIMessage(content="tool-call", id="ai-1")]
     new_messages = [SystemMessage(content="summary")]
 
     preserved_messages = [AIMessage(content="tool-call", id="ai-1")]
@@ -214,14 +212,11 @@ def test_rebuild_messages_rescues_swallowed_human_message() -> None:
     assert final_msgs[2].id == "h-1"
     assert final_msgs[3].id == "ai-1"
 
+
 def test_rebuild_messages_leaves_preserved_human_message_intact() -> None:
     middleware = _middleware()
     human_msg = HumanMessage(content="active-task", id="h-1")
-    original_messages = [
-        SystemMessage(content="sys"),
-        human_msg,
-        AIMessage(content="tool-call", id="ai-1")
-    ]
+    original_messages = [SystemMessage(content="sys"), human_msg, AIMessage(content="tool-call", id="ai-1")]
     new_messages = [SystemMessage(content="summary")]
 
     preserved_messages = [human_msg, AIMessage(content="tool-call", id="ai-1")]

@@ -75,7 +75,6 @@ class DeerFlowSummarizationMiddleware(SummarizationMiddleware):
         return [SystemMessage(content=f"Here is a summary of the conversation to date:\n{summary}")]
 
     def _rebuild_messages_with_anchor(self, original_messages: list[AnyMessage], new_messages: list[AnyMessage], preserved_messages: list[AnyMessage]) -> dict:
-
         current_msg = next((msg for msg in reversed(original_messages) if isinstance(msg, HumanMessage) or getattr(msg, "type", "") == "human"), None)
 
         current_msg_id = getattr(current_msg, "id", None) if current_msg else None
