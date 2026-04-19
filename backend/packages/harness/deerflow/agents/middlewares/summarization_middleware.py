@@ -72,10 +72,15 @@ class DeerFlowSummarizationMiddleware(SummarizationMiddleware):
 
     def _build_new_messages(self, summary: str) -> list[AnyMessage]:
         """Override base behaviour to strictly cast the summary as a SystemMessage."""
-        return [SystemMessage(content=f"Here is a summary of the conversation to date:\n{summary}")]
+        return [SystemMessage(content=f"Here is a summary of the conversation to date:\n{summary}", name="summary")]
 
     def _rebuild_messages_with_anchor(self, original_messages: list[AnyMessage], new_messages: list[AnyMessage], preserved_messages: list[AnyMessage]) -> dict:
-        current_msg = next((msg for msg in reversed(original_messages) if isinstance(msg, HumanMessage) or getattr(msg, "type", "") == "human"), None)
+        current_msg = None
+        # Only anchor if the absolute last message is a HumanMessage
+        if original_messages:
+            last_msg = original_messages[-1]
+            if isinstance(last_msg, HumanMessage) or getattr(last_msg, "type", "") == "human":
+                current_msg = last_msg
 
         current_msg_id = getattr(current_msg, "id", None) if current_msg else None
 

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 
 from deerflow.agents.memory.summarization_hook import memory_flush_hook
 from deerflow.agents.middlewares.summarization_middleware import DeerFlowSummarizationMiddleware, SummarizationEvent
@@ -195,37 +195,85 @@ def test_build_new_messages_casts_to_system_message() -> None:
     assert "This is a test summary" in new_messages[0].content
 
 
-def test_rebuild_messages_rescues_swallowed_human_message() -> None:
+def test_rebuild_messages_rescues_last_human_message() -> None:
     middleware = _middleware()
     human_msg = HumanMessage(content="active-task", id="h-1")
-    original_messages = [SystemMessage(content="sys"), human_msg, AIMessage(content="tool-call", id="ai-1")]
+    original_msgs = [SystemMessage(content="sys"), AIMessage(content="ai-1"), human_msg]
     new_messages = [SystemMessage(content="summary")]
 
-    preserved_messages = [AIMessage(content="tool-call", id="ai-1")]
+    preserved_msgs = []
 
-    result = middleware._rebuild_messages_with_anchor(original_messages, new_messages, preserved_messages)
+    result = middleware._rebuild_messages_with_anchor(original_msgs, new_messages, preserved_msgs)
     final_msgs = result["messages"]
 
-    assert len(final_msgs) == 4
+    assert len(final_msgs) == 3
     assert isinstance(final_msgs[0], RemoveMessage)
     assert isinstance(final_msgs[1], SystemMessage)
     assert final_msgs[2].id == "h-1"
-    assert final_msgs[3].id == "ai-1"
 
 
 def test_rebuild_messages_leaves_preserved_human_message_intact() -> None:
+    """If keep > 1 naturally preserved the task, it does not duplicate."""
     middleware = _middleware()
-    human_msg = HumanMessage(content="active-task", id="h-1")
-    original_messages = [SystemMessage(content="sys"), human_msg, AIMessage(content="tool-call", id="ai-1")]
+    human_msg = HumanMessage(content="active_task", id="h-1")
+
+    original_msgs = [SystemMessage(content="sys"), human_msg]
     new_messages = [SystemMessage(content="summary")]
+    preserved_msgs = [human_msg]
 
-    preserved_messages = [human_msg, AIMessage(content="tool-call", id="ai-1")]
-
-    result = middleware._rebuild_messages_with_anchor(original_messages, new_messages, preserved_messages)
+    result = middleware._rebuild_messages_with_anchor(original_msgs, new_messages, preserved_msgs)
     final_msgs = result["messages"]
 
-    assert len(final_msgs) == 4
+    assert len(final_msgs) == 3
     assert isinstance(final_msgs[0], RemoveMessage)
     assert isinstance(final_msgs[1], SystemMessage)
     assert final_msgs[2].id == "h-1"
-    assert final_msgs[3].id == "ai-1"
+
+
+def test_rebuild_messages_skips_anchor_mid_tool_loop() -> None:
+    """If last message is NOT HumanMessage anchoring skips"""
+    middleware = _middleware()
+    tool_msg = ToolMessage(content="result", tool_call_id="call_1", id="t-1")
+    original_msgs = [HumanMessage(content="task"), AIMessage(content="call", tool_calls=[{"name": "search", "id": "call_1", "args": {}}]), tool_msg]
+    new_messages = [SystemMessage(content="summary")]
+    preserved_msgs = [tool_msg]
+
+    result = middleware._rebuild_messages_with_anchor(original_msgs, new_messages, preserved_msgs)
+    final_msgs = result["messages"]
+
+    assert len(final_msgs) == 3
+    assert isinstance(final_msgs[0], RemoveMessage)
+    assert isinstance(final_msgs[1], SystemMessage)
+    assert isinstance(final_msgs[2], ToolMessage)
+
+
+def test_rebuild_messages_no_human_message_exists() -> None:
+    """When no HumanMessage exists in the array at all."""
+    middleware = _middleware()
+    original_msgs = [SystemMessage(content="sys"), AIMessage(content="ai-1")]
+    new_messages = [SystemMessage(content="summary")]
+    preserved_msgs = [AIMessage(content="ai-1")]
+
+    result = middleware._rebuild_messages_with_anchor(original_msgs, new_messages, preserved_msgs)
+    final_msgs = result["messages"]
+
+    assert len(final_msgs) == 3
+    assert isinstance(final_msgs[2], AIMessage)
+
+
+def test_maybe_summarize_integration_anchors_correctly() -> None:
+    """Integration test asserting full output of _maybe_summarize"""
+    middleware = _middleware(trigger=("messages", 2), keep=("messages", 1))
+    human_msg = HumanMessage(content="Q2", id="h-2")
+
+    state = {"messages": [HumanMessage(content="Q1"), AIMessage(content="A1"), human_msg]}
+
+    middleware._determine_cutoff_index = MagicMock(return_value=3)
+
+    result = middleware._maybe_summarize(state, _runtime())
+    final_msgs = result["messages"]
+
+    assert len(final_msgs) == 3
+    assert isinstance(final_msgs[0], RemoveMessage)
+    assert isinstance(final_msgs[1], SystemMessage)  # new summary
+    assert final_msgs[2].id == "h-2"
