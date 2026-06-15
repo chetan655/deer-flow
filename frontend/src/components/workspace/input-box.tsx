@@ -547,7 +547,7 @@ export function InputBox({
       return;
     }
 
-    if (suggestionsConfig && !suggestionsConfig.enabled) {
+    if (!suggestionsConfig?.enabled) {
       setFollowups([]);
       return;
     }
