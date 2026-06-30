@@ -368,8 +368,8 @@ export function InputBox({
   const handleSubmit = useCallback(
     (message: PromptInputMessage) => {
       if (status === "streaming") {
-        onStop?.();
-        return;
+        toast.info("Please wait for the current response to finish.");
+        return Promise.reject(new Error("streaming"));
       }
       if (!message.text.trim() && message.files.length === 0) {
         return;
@@ -1221,6 +1221,12 @@ export function InputBox({
               disabled={disabled}
               variant="outline"
               status={status}
+              onClick={(e) => {
+                if (status === "streaming") {
+                  e.preventDefault();
+                  onStop?.();
+                }
+              }}
             />
           </PromptInputTools>
         </PromptInputFooter>
